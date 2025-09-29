@@ -39,5 +39,6 @@ jobs:
         run: |
           for f in ${{ steps.changed.outputs.changed_files }}; do
             echo "📄 Processing $f"
+            copilot @$f "Please explain in detail this workflow and describe stages, jobs and steps on markdown format. Create a mermaid that represent this workflow."
           done
 
