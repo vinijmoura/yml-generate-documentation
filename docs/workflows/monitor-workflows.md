@@ -1,24 +1,359 @@
-# 
+# Monitor Workflow Changes and Generate Documentation
 
 > **Auto-generated documentation** for `.github/workflows/monitor-workflows.yml`  
-> Last updated: 2025-09-29 15:31:42 UTC
+> Last updated: 2025-09-29 15:36:49 UTC
 
 ## 📋 Workflow Overview
 
 **File:** `.github/workflows/monitor-workflows.yml`  
-**Name:**   
-**Triggers:**   
-**Jobs:** 
-
-This is the main monitoring workflow that automatically generates documentation for other GitHub Actions workflows when they are modified.
+**Name:** Monitor Workflow Changes and Generate Documentation  
+**Triggers:** push, pull_request  
+**Jobs:** generate-documentation 
 
 ## 🚀 Triggers
 
 The workflow is triggered by the following events:
 
 ```yaml
-
+push:
+  paths:
+    - '.github/workflows/*.yml'
+    - '.github/workflows/*.yaml'
+  branches:
+    - main
+    - master
+pull_request:
+  paths:
+    - '.github/workflows/*.yml'
+    - '.github/workflows/*.yaml'
+  branches:
+    - main
+    - master
 ```
 
 ## 🏗️ Jobs
 
+### generate-documentation
+
+**Runs on:** ubuntu-latest
+
+**Steps:**
+- **Checkout repository**
+- **Install GitHub CLI and dependencies**
+- **Configure GitHub CLI**
+- **Detect changed workflow files**
+- **Generate documentation for changed workflows**
+- **Commit and push documentation**
+- **Summary**
+
+## 🔧 Dependencies and Actions
+
+The following external actions are used in this workflow:
+
+- `actions/checkout@v4`
+- `grep -E "" "$file" | sed 's/^[[:space:]]*//' | sed 's/uses:[[:space:]]*//' | sort -u | while read -r action; do`
+
+## 🔐 Environment Variables and Secrets
+
+The following environment variables and secrets are used:
+
+**Environment Variables:**
+
+**Secrets:**
+- `secrets.GITHUB_TOKEN`
+
+
+## 📄 Complete Workflow File
+
+<details>
+<summary>Click to expand the complete workflow file</summary>
+
+```yaml
+name: Monitor Workflow Changes and Generate Documentation
+
+on:
+  push:
+    paths:
+      - '.github/workflows/*.yml'
+      - '.github/workflows/*.yaml'
+    branches:
+      - main
+      - master
+  pull_request:
+    paths:
+      - '.github/workflows/*.yml'
+      - '.github/workflows/*.yaml'
+    branches:
+      - main
+      - master
+
+jobs:
+  generate-documentation:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install GitHub CLI and dependencies
+        run: |
+          # Install GitHub CLI
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          sudo apt update
+          sudo apt install gh -y
+          
+          # Install yq for YAML parsing
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          
+          # Verify installations
+          gh --version
+          yq --version
+
+      - name: Configure GitHub CLI
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+
+      - name: Detect changed workflow files
+        id: changed-files
+        run: |
+          # Get the list of changed workflow files
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # For pull requests, compare with base branch
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+            CHANGED_FILES=$(git diff --name-only $BASE_SHA $HEAD_SHA -- '.github/workflows/*.yml' '.github/workflows/*.yaml' || true)
+          else
+            # For push events, compare with previous commit
+            if [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+              CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} -- '.github/workflows/*.yml' '.github/workflows/*.yaml' || true)
+            else
+              # First commit, get all workflow files
+              CHANGED_FILES=$(find .github/workflows -name "*.yml" -o -name "*.yaml" | tr '\n' ' ' || true)
+            fi
+          fi
+          
+          echo "Changed workflow files: $CHANGED_FILES"
+          
+          # Store changed files for next steps
+          echo "changed_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          # Check if any files were changed
+          if [ -n "$CHANGED_FILES" ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate documentation for changed workflows
+        if: steps.changed-files.outputs.has_changes == 'true'
+        run: |
+          # Create docs directory if it doesn't exist
+          mkdir -p docs/workflows
+          
+          # Create a script to generate documentation
+          cat > /tmp/generate_docs.sh << 'SCRIPT'
+          #!/bin/bash
+          file="$1"
+          filename=$(basename "$file" .yml)
+          filename=$(basename "$filename" .yaml)
+          
+          echo "Processing workflow file: $file"
+          
+          # Get workflow metadata
+          WORKFLOW_NAME=$(yq eval '.name // "Unnamed Workflow"' "$file" 2>/dev/null || echo "Unnamed Workflow")
+          TRIGGERS=$(yq eval '.on | keys | join(", ")' "$file" 2>/dev/null || echo "Not specified")
+          JOBS=$(yq eval '.jobs | keys | .[]' "$file" 2>/dev/null | tr '\n' ' ' || echo "No jobs found")
+          
+          # Start creating the documentation
+          cat > "docs/workflows/${filename}.md" << DOCSTART
+          # ${WORKFLOW_NAME}
+          
+          > **Auto-generated documentation** for \`$file\`  
+          > Last updated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          
+          ## 📋 Workflow Overview
+          
+          **File:** \`$file\`  
+          **Name:** ${WORKFLOW_NAME}  
+          **Triggers:** ${TRIGGERS}  
+          **Jobs:** ${JOBS}
+          
+          ## 🚀 Triggers
+          
+          The workflow is triggered by the following events:
+          
+          \`\`\`yaml
+          DOCSTART
+          
+          # Add trigger configuration
+          yq eval '.on' "$file" 2>/dev/null >> "docs/workflows/${filename}.md" || echo "on: [triggers not found]" >> "docs/workflows/${filename}.md"
+          
+          echo '```' >> "docs/workflows/${filename}.md"
+          echo "" >> "docs/workflows/${filename}.md"
+          echo "## 🏗️ Jobs" >> "docs/workflows/${filename}.md"
+          echo "" >> "docs/workflows/${filename}.md"
+          
+          # Add detailed job information
+          yq eval '.jobs | keys[]' "$file" 2>/dev/null | while read -r job_name; do
+            echo "### $job_name" >> "docs/workflows/${filename}.md"
+            echo "" >> "docs/workflows/${filename}.md"
+            
+            # Get runs-on
+            runs_on=$(yq eval ".jobs.$job_name.runs-on" "$file" 2>/dev/null || echo "unknown")
+            echo "**Runs on:** $runs_on" >> "docs/workflows/${filename}.md"
+            echo "" >> "docs/workflows/${filename}.md"
+            
+            # Get strategy if exists
+            if yq eval ".jobs.$job_name | has(\"strategy\")" "$file" 2>/dev/null | grep -q true; then
+              echo "**Strategy:**" >> "docs/workflows/${filename}.md"
+              echo '```yaml' >> "docs/workflows/${filename}.md"
+              yq eval ".jobs.$job_name.strategy" "$file" 2>/dev/null >> "docs/workflows/${filename}.md"
+              echo '```' >> "docs/workflows/${filename}.md"
+              echo "" >> "docs/workflows/${filename}.md"
+            fi
+            
+            # Get needs if exists
+            if yq eval ".jobs.$job_name | has(\"needs\")" "$file" 2>/dev/null | grep -q true; then
+              needs=$(yq eval ".jobs.$job_name.needs" "$file" 2>/dev/null)
+              echo "**Depends on:** $needs" >> "docs/workflows/${filename}.md"
+              echo "" >> "docs/workflows/${filename}.md"
+            fi
+            
+            echo "**Steps:**" >> "docs/workflows/${filename}.md"
+            yq eval ".jobs.$job_name.steps[].name" "$file" 2>/dev/null | sed 's/^/- **/' | sed 's/$/**/' >> "docs/workflows/${filename}.md" || echo "- Could not parse steps" >> "docs/workflows/${filename}.md"
+            echo "" >> "docs/workflows/${filename}.md"
+          done
+          
+          # Add dependencies section
+          echo "## 🔧 Dependencies and Actions" >> "docs/workflows/${filename}.md"
+          echo "" >> "docs/workflows/${filename}.md"
+          echo "The following external actions are used in this workflow:" >> "docs/workflows/${filename}.md"
+          echo "" >> "docs/workflows/${filename}.md"
+          
+          grep -E "uses:" "$file" | sed 's/^[[:space:]]*//' | sed 's/uses:[[:space:]]*//' | sort -u | while read -r action; do
+            echo "- \`$action\`" >> "docs/workflows/${filename}.md"
+          done
+          
+          # Add environment variables and secrets section
+          echo "" >> "docs/workflows/${filename}.md"
+          echo "## 🔐 Environment Variables and Secrets" >> "docs/workflows/${filename}.md"
+          echo "" >> "docs/workflows/${filename}.md"
+          
+          if grep -q -E "env:|secrets\." "$file"; then
+            echo "The following environment variables and secrets are used:" >> "docs/workflows/${filename}.md"
+            echo "" >> "docs/workflows/${filename}.md"
+            
+            if grep -q "env:" "$file"; then
+              echo "**Environment Variables:**" >> "docs/workflows/${filename}.md"
+              yq eval '.env // {} | to_entries | .[] | "- `" + .key + "`: " + .value' "$file" 2>/dev/null >> "docs/workflows/${filename}.md" || echo "- Could not parse environment variables" >> "docs/workflows/${filename}.md"
+              echo "" >> "docs/workflows/${filename}.md"
+            fi
+            
+            if grep -q "secrets\." "$file"; then
+              echo "**Secrets:**" >> "docs/workflows/${filename}.md"
+              grep -o 'secrets\.[A-Z_][A-Z0-9_]*' "$file" | sort -u | sed 's/^/- `/' | sed 's/$/`/' >> "docs/workflows/${filename}.md"
+              echo "" >> "docs/workflows/${filename}.md"
+            fi
+          else
+            echo "No environment variables or secrets are used in this workflow." >> "docs/workflows/${filename}.md"
+            echo "" >> "docs/workflows/${filename}.md"
+          fi
+          
+          # Add complete workflow file section
+          cat >> "docs/workflows/${filename}.md" << DOCEND
+          
+          ## 📄 Complete Workflow File
+          
+          <details>
+          <summary>Click to expand the complete workflow file</summary>
+          
+          \`\`\`yaml
+          DOCEND
+          
+          cat "$file" >> "docs/workflows/${filename}.md"
+          
+          cat >> "docs/workflows/${filename}.md" << DOCFINAL
+          \`\`\`
+          
+          </details>
+          
+          ---
+          
+          *This documentation was automatically generated by the workflow monitoring system.*  
+          *For more information about GitHub Actions, visit the [official documentation](https://docs.github.com/en/actions).*
+          DOCFINAL
+          
+          echo "✅ Documentation generated: docs/workflows/${filename}.md"
+          SCRIPT
+          
+          chmod +x /tmp/generate_docs.sh
+          
+          # Process each changed workflow file
+          echo "${{ steps.changed-files.outputs.changed_files }}" | tr ' ' '\n' | while read -r file; do
+            if [ -n "$file" ] && [ -f "$file" ]; then
+              /tmp/generate_docs.sh "$file"
+            fi
+          done
+
+      - name: Commit and push documentation
+        if: steps.changed-files.outputs.has_changes == 'true'
+        run: |
+          # Configure git
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          # Add generated documentation
+          git add docs/workflows/
+          
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No documentation changes to commit"
+          else
+            # Commit the changes
+            git commit -m "📝 Auto-update workflow documentation
+            
+            Generated documentation for modified workflow files:
+            ${{ steps.changed-files.outputs.changed_files }}
+            
+            Triggered by: ${{ github.event_name }}
+            Commit: ${{ github.sha }}"
+            
+            # Push the changes
+            git push
+            
+            echo "✅ Documentation committed and pushed successfully"
+          fi
+
+      - name: Summary
+        if: steps.changed-files.outputs.has_changes == 'true'
+        run: |
+          echo "## 📋 Workflow Documentation Generation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Changed workflow files:**" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.changed-files.outputs.changed_files }}" | tr ' ' '\n' | while read -r file; do
+            if [ -n "$file" ]; then
+              filename=$(basename "$file" .yml)
+              filename=$(basename "$filename" .yaml)
+              echo "- ✅ \`$file\` → \`docs/workflows/${filename}.md\`" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Event:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY```
+
+</details>
+
+---
+
+*This documentation was automatically generated by the workflow monitoring system.*  
+*For more information about GitHub Actions, visit the [official documentation](https://docs.github.com/en/actions).*

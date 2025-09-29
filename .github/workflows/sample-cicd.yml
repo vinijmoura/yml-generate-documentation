@@ -1,5 +1,7 @@
 name: Sample CI/CD Pipeline
 
+# This workflow demonstrates a typical CI/CD pipeline with testing, building, and deployment
+
 on:
   push:
     branches: [ main, develop ]

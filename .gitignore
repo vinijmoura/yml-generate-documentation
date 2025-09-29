@@ -52,3 +52,11 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Temporary files
+/tmp/
+*.tmp
+*.temp
+
+# Documentation generation scripts (temporary)
+generate_docs_*.sh
