@@ -34,11 +34,15 @@ jobs:
           files=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep ".github/workflows/.*\.yml" || true)
           echo "changed_files=$files" >> $GITHUB_OUTPUT
 
+      - name: Enable Copilot CLI
+        run: |
+          echo 1 | copilot
+          
       - name: Generating documentaion
         if: steps.changed.outputs.changed_files != ''
         run: |
           for f in ${{ steps.changed.outputs.changed_files }}; do
             echo "📄 Processing $f"
-            copilot @$f "Please explain in detail this workflow and describe stages, jobs and steps on markdown format. Create a mermaid that represent this workflow."
+            @$f "Please explain in detail this workflow and describe stages, jobs and steps on markdown format. Create a mermaid that represent this workflow."
           done
 
