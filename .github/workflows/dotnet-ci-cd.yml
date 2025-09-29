@@ -1,5 +1,4 @@
 name: .NET Build, Test and Publish
-
 on:
   workflow_dispatch:
 
