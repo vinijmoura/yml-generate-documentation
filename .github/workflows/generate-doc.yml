@@ -27,9 +27,6 @@ jobs:
       - name: Install Copilot CLI
         run: npm install -g @github/copilot
 
-      - name: List Copilo CLI commands
-        run: copilot help
-
       - name: Get changed YML files
         run: |
           echo "Files changed:"
