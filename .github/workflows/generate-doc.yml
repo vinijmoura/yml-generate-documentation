@@ -1,9 +1,8 @@
 name: Auto Document Workflows
 
 on:
-  workflow_dispatch: # permite disparar manualmente
-
-
+  workflow_dispatch:
+  
   push:
     paths:
       - ".github/workflows/*.yml"
@@ -14,7 +13,7 @@ jobs:
   autodoc:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # necessário para commit & push
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
