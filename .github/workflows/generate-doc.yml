@@ -29,3 +29,10 @@ jobs:
 
       - name: List Copilo CLI commands
         run: copilot help
+
+      - name: Get changed YML files
+        run: |
+          echo "Files changed:"
+          git fetch origin ${{ github.event.before }}
+          git diff --name-only ${{ github.event.before }} ${{ github.sha }}
+
