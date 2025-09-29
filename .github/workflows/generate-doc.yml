@@ -3,12 +3,12 @@ name: Auto Document Workflows
 on:
   workflow_dispatch: # permite disparar manualmente
 
+
   push:
     paths:
       - ".github/workflows/*.yml"
       - ".github/workflows/*.yaml"
-    paths-ignore:
-      - ".github/workflows/generate-doc.yml"
+      - "!.github/workflows/generate-doc.yml"
 
 jobs:
   autodoc:
