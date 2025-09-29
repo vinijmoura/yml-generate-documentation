@@ -8,7 +8,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         name: Checkou Repository
-
+      - run: |
+          echo "Hello Build job!!!"
+          
   test:
     needs: build
     runs-on: ubuntu-latest
