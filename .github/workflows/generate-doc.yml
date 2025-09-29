@@ -20,8 +20,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
+        name: Install Node 22
         with:
           node-version: 22
 
-      - name: Instalar Copilot CLI
+      - name: Install Copilot CLI
         run: npm install -g @github/copilot
+
+      - name: List Copilo CLI commands
+        run: copilot help
