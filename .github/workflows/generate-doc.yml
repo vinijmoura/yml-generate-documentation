@@ -28,7 +28,15 @@ jobs:
 
       - name: Get changed YML files
         run: |
-          echo "Files changed:"
+          echo "Get YML files changed:"
           git fetch origin ${{ github.event.before }}
-          git diff --name-only ${{ github.event.before }} ${{ github.sha }}
+          files=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep ".github/workflows/.*\.yml" || true)
+          echo "changed_files=$files" >> $GITHUB_OUTPUT
+
+      - name: Generating documentaion
+        if: steps.changed.outputs.changed_files != ''
+        run: |
+          for f in ${{ steps.changed.outputs.changed_files }}; do
+            echo "📄 Processing $f"
+          done
 
