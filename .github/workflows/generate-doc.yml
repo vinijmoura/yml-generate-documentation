@@ -27,6 +27,7 @@ jobs:
         run: npm install -g @github/copilot
 
       - name: Get changed YML files
+        id: changed
         run: |
           echo "Get YML files changed:"
           git fetch origin ${{ github.event.before }}
