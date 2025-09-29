@@ -24,7 +24,7 @@ jobs:
           node-version: 22
 
       - name: Install Copilot CLI
-        run: npm install -g @github/copilot
+        run: npm install -g @github/copilot@latest
 
       - name: Get changed YML files
         id: changed
