@@ -1,0 +1,73 @@
+name: SELENIUM and JMETER
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+
+env:
+    Solution_Name: 'PartsUnlimited.sln'                      
+    buildPlatform: 'Any CPU'
+    buildConfiguration: 'Release'
+    PACKAGE_LOCATION: c:\PartsUnlimited
+    ARTIFACTS_DOWNLOAD: C:\Artifacts\PartsUnlimited
+    WEB_SITE_NAME: PartsUnlimited
+
+jobs:
+  build:
+    runs-on: windows-2019
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup NuGet.exe for use with actions
+        uses: NuGet/setup-nuget@v1.0.5
+     
+      - name: Restore Packages
+        run: nuget restore $env:Solution_Name
+  
+      - name: setup-msbuild
+        uses: microsoft/setup-msbuild@v1.0.2
+      
+      - name: Build using MSBuild
+        run: msbuild $env:Solution_Name /p:platform=$env:buildPlatform /p:Configuration=$env:buildConfiguration /p:DeployOnBuild=true /p:WebPublishMethod=Package /p:PackageAsSingleFile=true /p:SkipInvalidConfigurations=true /p:PackageLocation=$env:PACKAGE_LOCATION
+
+      - name: Copy JMeter Files
+        shell: pwsh
+        run: |
+          Copy-Item -Path ./test/PartsUnlimited.LoadTests/LoadTest.jmx -Destination ${{ env.PACKAGE_LOCATION }} -Force
+          Copy-Item -Path ./test/PartsUnlimited.LoadTests/jtl_junit_converter.py -Destination ${{ env.PACKAGE_LOCATION }} -Force
+      - name: Publish Artifacts
+        uses: actions/upload-artifact@v1.0.0
+        with:
+          name: JMeter
+          path: ${{ env.PACKAGE_LOCATION }}
+
+  dev:
+    needs: build
+    environment:
+     name: dev
+    runs-on: jmeter-test
+    steps:
+    - name: Download a Build Artifact
+      uses: actions/download-artifact@v2.0.7
+      with:
+        name:  JMeter
+        path: ${{ env.ARTIFACTS_DOWNLOAD }}\${{ github.run_number }}
+        
+    - name: Run MSDeploy.exe
+      run: msdeploy -verb:sync -source:package=${{ env.ARTIFACTS_DOWNLOAD }}\${{ github.run_number }}\PartsUnlimitedWebsite.zip -dest:auto -setParam:name=`'IIS Web Application Name`',value=$env:WEB_SITE_NAME -enableRule:DoNotDeleteRule
+  
+    - name: Run JMeter
+      run: jmeter -n -t ${{ env.ARTIFACTS_DOWNLOAD }}\${{ github.run_number }}\LoadTest.jmx -l ${{ env.ARTIFACTS_DOWNLOAD }}\${{ github.run_number }}\${{ github.run_number }}.jtl
+      
+    - name: Run Convert JMeter Result to JUnit
+      run:  python ${{ env.ARTIFACTS_DOWNLOAD }}\${{ github.run_number }}\jtl_junit_converter.py ${{ env.ARTIFACTS_DOWNLOAD }}\${{ github.run_number }}\${{ github.run_number }}.jtl ${{ env.ARTIFACTS_DOWNLOAD }}\${{ github.run_number }}\${{ github.run_number }}.xml
+
+    - name: Publish Artifacts
+      uses: actions/upload-artifact@v1.0.0
+      with:
+        name: JMeterTestFile
+        path: ${{ env.ARTIFACTS_DOWNLOAD }}\${{ github.run_number }}\${{ github.run_number }}.xml
