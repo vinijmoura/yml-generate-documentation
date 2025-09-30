@@ -43,7 +43,7 @@ jobs:
             outFile="docs/workflows/$(basename $f .yml).md"
             echo "📄 Processing $f"
             echo "📄 Generating doc on $outFile"
-            copilot -p "Use only the content received via stdin. Ignore any other files in the workspace. Please explain in detail this workflow and describe stages, jobs and steps on markdown format. Create a mermaid that represent this workflow." < $f > $outFile
+            copilot -p "Ignore any other files or workspace context. Use only the following content for analysis: $(cat "$f") Please explain in detail this workflow and describe stages, jobs and steps on markdown format. Create a mermaid that represent this workflow." > $outFile
             echo "✅ File generated $outFile"
           done
         env:
