@@ -43,7 +43,7 @@ jobs:
             echo "📄 Processing $f"
             outFile="docs/workflows/$(basename $f .yml).md"
             copilot -p "Please explain in detail this workflow and describe stages, jobs and steps on markdown format. Create a mermaid that represent this workflow." < $f > $outFile
-            echo "✅ File genrated $outFile"
+            echo "✅ File generated $outFile"
           done
         env:
           GH_TOKEN: ${{ secrets.COPILOT_CLI }}
