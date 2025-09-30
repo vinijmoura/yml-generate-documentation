@@ -17,6 +17,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         name: Checkout Repository      
+      - run: |
+          echo "Hello Test job!!!"
 
   publish:
     needs: test
