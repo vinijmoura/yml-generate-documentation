@@ -37,6 +37,8 @@ jobs:
       - name: Enable Copilot CLI
         run: |
           echo 1 | copilot
+        env:
+          GH_TOKEN: ${{ secrets.COPILOT_CLI }}
           
       - name: Generating documentaion
         if: steps.changed.outputs.changed_files != ''
