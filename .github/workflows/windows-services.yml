@@ -1,0 +1,70 @@
+name: Windows Services Release
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+
+env:
+  OUTPUT_DIRECTORY: c:\myapp
+  SERVICE_NAME: SampleWindowsServicesGHA
+  SERVICE_DIRECTORYNAME: C:\Services
+  DOWNLOAD_DIRECTORY: C:\ServicesDownload
+  
+jobs:
+  build:
+    runs-on: self-hosted
+    env:
+      Solution_Name: 'SampleWindowsServicesGHA.sln'                      
+      buildPlatform: 'Any CPU'
+      buildConfiguration: 'Release'
+    
+    steps:    
+    - name: Checkout
+      uses: actions/checkout@v2      
+      
+    - name: Setup NuGet.exe for use with actions
+      uses: NuGet/setup-nuget@v1.0.5
+         
+    - name: Restore Packages
+      run: nuget restore $env:Solution_Name
+  
+    - name: setup-msbuild
+      uses: microsoft/setup-msbuild@v1.0.2 
+    
+    - name: Build using MSBuild
+      run: msbuild $env:Solution_Name /p:platform=$env:buildPlatform /p:Configuration=$env:buildConfiguration /p:OutputPath=${{ env.OUTPUT_DIRECTORY }}
+    
+    - name: Publish Artifacts
+      uses: actions/upload-artifact@v1.0.0
+      with:
+        name: windowsservices
+        path: ${{ env.OUTPUT_DIRECTORY }}
+        
+  deploy:
+    needs: build
+    runs-on: self-hosted
+    steps:
+    - name: Download a Build Artifact
+      uses: actions/download-artifact@v2.0.7
+      with:
+        name:  windowsservices
+        path: ${{ env.DOWNLOAD_DIRECTORY }}\${{ env.SERVICE_NAME }}
+    - name: List Windows Services ${{ env.SERVICE_NAME }}
+      shell: pwsh
+      run: |
+        Get-Service -Name ${{ env.SERVICE_NAME }}   
+    - name: Stop Windows Services ${{ env.SERVICE_NAME }}
+      run: |
+        Start-Process pwsh -ArgumentList "-c `" & {Stop-Service -Name ${{ env.SERVICE_NAME }}}`"" -Verb RunAs
+        do { Write-Host "Stopping service ${{ env.SERVICE_NAME }}" } until ((Get-Service -Name ${{ env.SERVICE_NAME }}).Status -eq "Stopped" )
+    - name: Copy Windows Services files
+      shell: pwsh
+      run: |
+        Copy-Item -Path ${{ env.DOWNLOAD_DIRECTORY }}\${{ env.SERVICE_NAME }}\* -Destination ${{ env.SERVICE_DIRECTORYNAME }}\${{ env.SERVICE_NAME }} -Force
+    - name: Start Windows Services ${{ env.SERVICE_NAME }}
+      shell: pwsh
+      run: |
+        Start-Process pwsh -ArgumentList "-c `" & {Start-Service -Name ${{ env.SERVICE_NAME }}}`"" -Verb RunAs
+        do { Write-Host "Starting service ${{ env.SERVICE_NAME }}" } until ((Get-Service -Name ${{ env.SERVICE_NAME }}).Status -eq "Running" )
