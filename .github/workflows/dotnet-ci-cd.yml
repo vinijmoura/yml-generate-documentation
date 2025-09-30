@@ -9,7 +9,7 @@ jobs:
       - uses: actions/checkout@v4
         name: Checkout Repository
       - run: |
-          echo "Hello Build job!"
+          echo "Hello Build job!!"
           
   test:
     needs: build
@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
         name: Checkout Repository      
       - run: |
-          echo "Hello Test job!"
+          echo "Hello Test job!!"
 
   publish:
     needs: test
@@ -27,4 +27,4 @@ jobs:
       - uses: actions/checkout@v4
         name: Checkout Repository      
       - run: |
-          echo "Hello Publish job!"
+          echo "Hello Publish job!!"
