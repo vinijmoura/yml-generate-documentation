@@ -1,0 +1,104 @@
+name: scan-build-mobsf
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      MOBSF_API_KEY: 'githubactionskey'
+      #BUILD_FILE: 'VulnApp.apk'
+      BUILD_FILE: 'DVIA-v2.ipa'
+      MOBSF_PDF_FILE: 'mobsf-report.pdf'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Baixar imagem do Mobile Security Framework
+        run: docker pull opensecurity/mobile-security-framework-mobsf:latest
+        
+      - name: Exibir imagens de containers no ambiente
+        run: docker images
+
+      - name: Criar container do Mobile Security Framework
+        run: docker run -it --rm -e "MOBSF_API_KEY=${{ env.MOBSF_API_KEY }}" -p 8000:8000 -d opensecurity/mobile-security-framework-mobsf:latest
+        
+      - name: Exibir containers em execucao
+        run: docker container ls
+
+      - name: Aguardar 40 segundos para a subida do container do MobSF
+        run: sleep 40s
+
+      - name: Efetuar upload do arquivo de build para o MobSF
+        shell: pwsh
+        run: |
+          $url = 'http://localhost:8000/api/v1/upload'
+          $headers = @{"X-Mobsf-Api-Key" = "${{ env.MOBSF_API_KEY }}"}
+          cd builds
+          echo 'Arquivos em /builds'
+          echo ''
+          pwd
+          echo ''
+          ls -l
+          echo ''
+          echo 'Efetuando upload do arquivo de build para o MobSF...'
+          $response = Invoke-WebRequest -Uri $url -Method Post -Form @{file = Get-Item -Path "./${{ env.BUILD_FILE }}"} -Headers $headers -ContentType 'multipart/form-data'
+          echo $response
+          echo $response.Content
+          $http_code = $response.StatusCode
+          if ($http_code -ne 200) {
+            echo "Upload falhou com código de status HTTP $http_code"
+            exit 1
+          } else {
+            echo "Upload bem-sucedido com código de status HTTP $http_code"
+            $hash = ($response.Content | ConvertFrom-Json).hash
+            echo "HASH_BUILD_FILE=$hash" | Out-File -FilePath $env:GITHUB_ENV -Append
+          }
+
+      - name: Testando a variavel de ambiente com o hash do arquivo de build
+        run: echo "O hash é ${{ env.HASH_BUILD_FILE }}"
+
+      - name: Enviar requisição para o endpoint de scan
+        shell: pwsh
+        run: |
+          $hash = "${{ env.HASH_BUILD_FILE }}"
+          $url = 'http://localhost:8000/api/v1/scan'
+          $headers = @{"X-Mobsf-Api-Key" = "${{ env.MOBSF_API_KEY }}"}
+          $response = Invoke-WebRequest -Uri $url -Method Post -Form @{hash = $hash} -Headers $headers -ContentType 'multipart/form-data'
+          echo $response
+          $http_code = $response.StatusCode
+          if ($http_code -ne 200) {
+            echo "Scan falhou com código de status HTTP $http_code"
+            exit 1
+          } else {
+            echo "Scan bem-sucedido com código de status HTTP $http_code"
+          }
+  
+      - name: Enviar requisição para o endpoint de PDF
+        shell: pwsh
+        run: |
+          $hash = "${{ env.HASH_BUILD_FILE }}"
+          $url = 'http://localhost:8000/api/v1/download_pdf'
+          $headers = @{"X-Mobsf-Api-Key" = "${{ env.MOBSF_API_KEY }}"}
+          $response = Invoke-WebRequest -Uri $url -Method Post -Headers $headers -Form @{hash = $hash} -ContentType 'multipart/form-data'
+          echo $response
+          $http_code = $response.StatusCode
+          if ($http_code -ne 200) {
+            echo "Download de relatorio .pdf falhou com código de status HTTP $http_code"
+            exit 1
+          } else {
+            echo "Download de relatorio .pdf bem-sucedido com código de status HTTP $http_code"
+            [System.IO.File]::WriteAllBytes('${{ env.MOBSF_PDF_FILE }}', $response.Content)
+          }
+
+      - name: Upload do relatorio PDF do MobSF com resultados da analise
+        uses: actions/upload-artifact@v4.6.1
+        with:
+          name: ${{ env.MOBSF_PDF_FILE }}
+          path: ${{ env.MOBSF_PDF_FILE }}
