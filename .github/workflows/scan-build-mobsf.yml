@@ -10,7 +10,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     env:
       MOBSF_API_KEY: 'githubactionskey'
       #BUILD_FILE: 'VulnApp.apk'
