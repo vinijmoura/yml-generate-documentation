@@ -1,4 +1,4 @@
-● # GitHub Actions Workflow: Mobile Security Framework (MobSF) Security Scan
+# GitHub Actions Workflow: Mobile Security Framework (MobSF) Security Scan
 
    ## Overview
 
