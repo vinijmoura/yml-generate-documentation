@@ -19,6 +19,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        name: Checkout Code
 
       - name: Baixar imagem do Mobile Security Framework
         run: docker pull opensecurity/mobile-security-framework-mobsf:latest
