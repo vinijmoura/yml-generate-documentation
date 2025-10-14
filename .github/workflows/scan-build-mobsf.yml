@@ -8,7 +8,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       MOBSF_API_KEY: 'githubactionskey'
-      #BUILD_FILE: 'VulnApp.apk'
       BUILD_FILE: 'DVIA-v2.ipa'
       MOBSF_PDF_FILE: 'mobsf-report.pdf'
 
