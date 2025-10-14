@@ -1,4 +1,4 @@
-● # scan-build-mobsf — MobSF Static Analysis via GitHub Actions 🚀🔐
+# scan-build-mobsf — MobSF Static Analysis via GitHub Actions 🚀🔐
 
    ## What this workflow does
    - Manually triggered (workflow_dispatch) run on Ubuntu.
