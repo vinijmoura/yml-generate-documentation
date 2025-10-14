@@ -62,43 +62,44 @@
    ## 🗺️ Mermaid Diagra
    ```mermaid
    flowchart LR
-     trigger([🧭 Manual Trigger<br/>workflow_dispatch]) --> J1[🔐 secrets_scanning]
-     J1 --> J2[🐳 dockerfile_scanning]
-     J2 --> J3[☸️ kubernetes_yaml_scanning]
-     J3 --> J4[🧪 tests]
+  trigger([Manual Trigger - workflow_dispatch]) --> J1[secrets_scanning]
+  J1 --> J2[dockerfile_scanning]
+  J2 --> J3[kubernetes_yaml_scanning]
+  J3 --> J4[tests]
 
-     subgraph S1[🔐 secrets_scanning]
-       A1[Checkout] --> A2[Install Gitleaks]
-       A2 --> A3[Test Gitleaks]
-       A3 --> A4[Run scan ➜ SARIF]
-       A4 --> A5[Upload SARIF]
-     end
+  subgraph S1[secrets_scanning]
+    A1[Checkout] --> A2[Install Gitleaks]
+    A2 --> A3[Test Gitleaks]
+    A3 --> A4["Run scan -> SARIF"]
+    A4 --> A5[Upload SARIF]
+  end
 
-     subgraph S2[🐳 dockerfile_scanning]
-       B1[Checkout] --> B2[Install Checkov]
-       B2 --> B3[Test Checkov]
-       B3 --> B4[Run scan (skip CKV_2,3) ➜ SARIF]
-       B4 --> B5[Upload SARIF]
-     end
+  subgraph S2[dockerfile_scanning]
+    B1[Checkout] --> B2[Install Checkov]
+    B2 --> B3[Test Checkov]
+    B3 --> B4["Run scan (skip CKV_2 and CKV_3) -> SARIF"]
+    B4 --> B5[Upload SARIF]
+  end
 
-     subgraph S3[☸️ kubernetes_yaml_scanning]
-       C1[Checkout] --> C2[Pull KICS]
-       C2 --> C3[Prep perms + Help]
-       C3 --> C4[Run scan (excludes) ➜ PDF]
-       C4 --> C5[Upload PDF]
-     end
+  subgraph S3[kubernetes_yaml_scanning]
+    C1[Checkout] --> C2[Pull KICS]
+    C2 --> C3[Prep perms + Help]
+    C3 --> C4["Run scan (excludes) -> PDF"]
+    C4 --> C5[Upload PDF]
+  end
 
-     subgraph S4[🧪 tests]
-       D1[Build image] --> D2[Create Kind cluster]
-       D2 --> D3[Load image + ns]
-       D3 --> D4[Token replace + Apply YAML]
-       D4 --> D5[Verify + Logs]
-     end
+  subgraph S4[tests]
+    D1[Build image] --> D2[Create Kind cluster]
+    D2 --> D3[Load image + ns]
+    D3 --> D4[Token replace + Apply YAML]
+    D4 --> D5[Verify + Logs]
+  end
 
-     click J1 href "https://github.com/gitleaks/gitleaks" "Gitleaks"
-     click J2 href "https://www.checkov.io/" "Checkov"
-     click J3 href "https://github.com/Checkmarx/kics" "KICS"
-     click J4 href "https://kind.sigs.k8s.io/" "Kind"
+  click J1 href "https://github.com/gitleaks/gitleaks" "Gitleaks"
+  click J2 href "https://www.checkov.io/" "Checkov"
+  click J3 href "https://github.com/Checkmarx/kics" "KICS"
+  click J4 href "https://kind.sigs.k8s.io/" "Kind"
+
    ```
 
    Tips:
