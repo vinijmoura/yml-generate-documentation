@@ -1,132 +1,76 @@
-# GitHub Actions Workflow: Mobile Security Framework (MobSF) Security Scan
+● # scan-build-mobsf — MobSF Static Analysis via GitHub Actions 🚀🔐
 
-   ## Overview
+   ## What this workflow does
+   - Manually triggered (workflow_dispatch) run on Ubuntu.
+   - Starts MobSF via Docker, uploads an iOS build (IPA), triggers a scan, downloads the PDF
+   report, and uploads it as a workflow artifact.
 
-   This workflow automates mobile application security testing using MobSF (Mobile Security
-   Framework). It deploys MobSF in a Docker container, uploads a mobile app build file (APK or
-   IPA), performs security analysis, and generates a PDF report as an artifact.
+   ## Trigger
+   - ▶️ Manual: on: workflow_dispatch
 
-   ## Workflow Triggers
+   ## Job: build 🧱
+   - Runner: ubuntu-latest
+   - Env:
+     - MOBSF_API_KEY: API key passed to MobSF (example value in YAML; use a secret in real usage).
+     - BUILD_FILE: DVIA-v2.ipa (expected at ./builds/DVIA-v2.ipa).
+     - MOBSF_PDF_FILE: mobsf-report.pdf (output report filename).
 
-   The workflow executes on three events:
-   - **Push** to the `main` branch
-   - **Pull Request** targeting the `main` branch
-   - **Manual trigger** via `workflow_dispatch`
+   ## Stages and steps
+   1) Setup 🧰
+   - actions/checkout@v4 — fetch repository code.
 
-   ## Environment Variables
+   2) MobSF container 🐳
+   - docker pull opensecurity/mobile-security-framework-mobsf:latest — get image.
+   - docker images — show images.
+   - docker run -it --rm -e MOBSF_API_KEY -p 8000:8000 -d … — launch MobSF API on localhost:8000.
+   - docker container ls — confirm it’s running.
+   - sleep 40s ⏳ — wait for MobSF to be ready.
 
-   The workflow configures three environment variables at the job level:
-   - `MOBSF_API_KEY`: Authentication key for MobSF API (`'githubactionskey'`)
-   - `BUILD_FILE`: Target application file (`'DVIA-v2.ipa'` - an iOS app; APK option commented out)
-   - `MOBSF_PDF_FILE`: Output report filename (`'mobsf-report.pdf'`)
+   3) Upload build 📤
+   - PowerShell step:
+     - cd builds; list files for visibility.
+     - POST /api/v1/upload with X-Mobsf-Api-Key and file=@./${BUILD_FILE}.
+     - On 200 OK, parse JSON response to get .hash and export HASH_BUILD_FILE to GITHUB_ENV.
 
-   ## Job: build
+   4) Scan 🔍
+   - PowerShell step:
+     - POST /api/v1/scan with hash=<HASH_BUILD_FILE> and API key.
+     - Validate 200 OK.
 
-   **Runtime Environment:** `ubuntu-latest`
+   5) Report (PDF) 📄
+   - PowerShell step:
+     - POST /api/v1/download_pdf with hash=<HASH_BUILD_FILE>.
+     - Save response bytes to $MOBSF_PDF_FILE.
 
-   ### Steps Breakdown
+   6) Artifact 📦
+   - actions/upload-artifact — upload mobsf-report.pdf.
 
-   **1. Checkout Code**
-   - Uses `actions/checkout@v4`
-   - Retrieves the repository source code to the runner
+   ## Output
+   - Artifact: mobsf-report.pdf containing the MobSF scan results.
 
-   **2. Pull MobSF Docker Image**
-   - Downloads the latest MobSF Docker image from
-   `opensecurity/mobile-security-framework-mobsf:latest`
+   ## Tips and caveats ⚠️
+   - Use secrets: set MOBSF_API_KEY via GitHub Secrets and map to env (e.g., env: MOBSF_API_KEY:
+   ${{ secrets.MOBSF_API_KEY }}).
+   - File location: ensure ./builds/${BUILD_FILE} exists in the repo or created beforehand.
+   - Env propagation: values written to $GITHUB_ENV must be read as environment variables in later
+   steps (PowerShell: $env:HASH_BUILD_FILE, Bash: $HASH_BUILD_FILE). Using ${{ env.HASH_BUILD_FILE
+   }} won’t pick up runtime changes.
+   - PDF saving: Prefer Invoke-WebRequest … -OutFile $env:MOBSF_PDF_FILE to reliably save bytes.
 
-   **3. Display Container Images**
-   - Lists all Docker images available in the environment for verification
-
-   **4. Create MobSF Container**
-   - Launches MobSF in detached mode (`-d`)
-   - Configures API key via environment variable
-   - Maps port 8000 (container) to 8000 (host)
-   - Uses `--rm` flag for automatic cleanup after container stops
-
-   **5. Display Running Containers**
-   - Lists active Docker containers to verify MobSF is running
-
-   **6. Wait for Container Initialization**
-   - Sleeps for 40 seconds to ensure MobSF service is fully operational
-
-   **7. Upload Build File to MobSF**
-   - Uses PowerShell to upload the mobile app file
-   - Navigates to `builds` directory
-   - Sends multipart/form-data POST request to `/api/v1/upload` endpoint
-   - Validates HTTP 200 response
-   - Extracts file hash from response and stores in `HASH_BUILD_FILE` environment variable
-
-   **8. Test Hash Environment Variable**
-   - Echoes the stored hash value for verification
-
-   **9. Initiate Security Scan**
-   - Sends POST request to `/api/v1/scan` endpoint with the file hash
-   - MobSF performs comprehensive security analysis
-   - Validates successful scan completion (HTTP 200)
-
-   **10. Generate and Download PDF Report**
-   - Requests PDF report via `/api/v1/download_pdf` endpoint
-   - Writes binary response content to `mobsf-report.pdf` file
-   - Validates successful download (HTTP 200)
-
-   **11. Upload PDF Artifact**
-   - Uses `actions/upload-artifact@v4.6.1`
-   - Stores the PDF report as a workflow artifact for download
-   - Artifact name and path both reference `MOBSF_PDF_FILE` variable
-
-   ## Workflow Diagram
-
+   ## Mermaid diagram
    ```mermaid
-   graph TD
-       A[Workflow Triggered] -->|push/PR/manual| B[Job: build on ubuntu-latest]
-       B --> C[Checkout Code]
-       C --> D[Pull MobSF Docker Image]
-       D --> E[Display Docker Images]
-       E --> F[Start MobSF Container<br/>Port 8000, API Key Set]
-       F --> G[Display Running Containers]
-       G --> H[Wait 40 seconds]
-       H --> I[Upload Build File<br/>POST /api/v1/upload]
-       I --> J{Upload<br/>Success?}
-       J -->|No HTTP 200| K[Exit with Error]
-       J -->|Yes| L[Extract & Store Hash]
-       L --> M[Verify Hash Variable]
-       M --> N[Trigger Security Scan<br/>POST /api/v1/scan]
-       N --> O{Scan<br/>Success?}
-       O -->|No HTTP 200| P[Exit with Error]
-       O -->|Yes| Q[Download PDF Report<br/>POST /api/v1/download_pdf]
-       Q --> R{Download<br/>Success?}
-       R -->|No HTTP 200| S[Exit with Error]
-       R -->|Yes| T[Save PDF to Disk]
-       T --> U[Upload PDF as Artifact]
-       U --> V[Workflow Complete]
-
-       style A fill:#e1f5ff
-       style B fill:#fff4e1
-       style F fill:#ffe1e1
-       style I fill:#e1ffe1
-       style N fill:#e1ffe1
-       style Q fill:#e1ffe1
-       style U fill:#f0e1ff
-       style V fill:#e1ffe1
-       style K fill:#ffcccc
-       style P fill:#ffcccc
-       style S fill:#ffcccc
+   flowchart TD
+       A[Manual Dispatch ▶️] --> B[Checkout Code 🧰]
+       B --> C[Pull MobSF Docker Image 🐳]
+       C --> D[List Docker Images]
+       D --> E[Run MobSF Container :8000]
+       E --> F[List Running Containers]
+       F --> G[Wait 40s ⏳]
+       G --> H[Upload IPA to /api/v1/upload 📤]
+       H --> I[Export HASH_BUILD_FILE 🔑]
+       I --> J[Trigger Scan /api/v1/scan 🔍]
+       J --> K[Download PDF /api/v1/download_pdf 📄]
+       K --> L[Upload Artifact mobsf-report.pdf 📦]
+       L --> M[Done ✅]
    ```
-
-   ## Key Features
-
-   **Security Analysis**: Automated mobile app vulnerability scanning for both Android (APK) and
-   iOS (IPA) applications
-
-   **Containerized Execution**: Isolated MobSF environment ensures consistent analysis without
-   dependency conflicts
-
-   **API-Driven**: Fully automated via MobSF REST API endpoints for upload, scan, and report
-   generation
-
-   **Artifact Preservation**: PDF security reports stored as workflow artifacts for audit trails
-   and review
-
-   **Error Handling**: HTTP status code validation at each API interaction with explicit failure
-   paths
 
