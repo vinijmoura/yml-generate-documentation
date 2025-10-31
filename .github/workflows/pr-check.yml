@@ -1,0 +1,470 @@
+name: Pull Request Check ⚡
+run-name: "${{ github.actor }} - ${{ github.run_id }}"
+
+#SECRETS: GITLEAKS_LICENSE, SONAR_TOKEN, SONAR_PROJECT_KEY, SNYK_TOKEN
+#VARS: SONAR_ORGANIZATION
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        description: 'Environment to run the workflow'
+        required: true
+        default: 'DEV'
+      testsFolder:
+        type: string
+        description: 'The main test folder'
+        required: false
+        default: 'tests'
+      msgCanalDeploy:
+        type: string
+        description: 'Message to be displayed in the summary'
+        required: false
+        default: 'Canal DEPLOY - O melhor canal sobre .NET, Azure, DevOps e IA'
+      #build config
+      dotnetVersion:
+        type: string
+        description: '.NET Version'
+        required: true
+        default: 9.x
+      projectBaseDir:
+        type: string
+        description: 'Path to SLNX file'
+        required: true
+        default: ./src
+      solutionFileName:
+        type: string
+        description: 'The SLNX full name. eg: DEPLOY.PROJECT.API.slnx'
+        required: true
+        default: ""
+      mainProject:
+        type: string
+        description: 'The main project. eg: DEPLOY.PROJECT.API'
+        required: true
+        default: ""
+      reportTitle:
+        type: string
+        description: 'Message to be displayed in the unit test report title'
+        required: true
+        default: 'Canal DEPLOY'
+      #build use
+      sonarExclusions:
+        type: string
+        description: 'Path to exclusion from sonar, like migrations. Use comma separation'
+        required: true
+        default: ""
+      #push-image
+      imageName:
+        type: string
+        description: 'Image name to publish at github packages'
+        required: true
+        default: ""
+      openAPIFolder:
+        type: string
+        description: ''
+        required: true
+        default: ""
+
+env:
+  RED: '\033[0;31m'
+  GREEN: '\033[0;32m'
+  YELLOW: '\033[0;33m'
+  BLUE: '\033[0;34m'
+  RESET: '\033[0m'
+  BOLD: '\033[1m'
+  UNDERLINE: '\033[4m'
+  BOLD_UNDERLINE: '\033[1;4m'
+  BOLD_RED: '\033[1;31m'
+  BOLD_GREEN: '\033[1;32m'
+  BOLD_YELLOW: '\033[1;33m'
+  BOLD_BLUE: '\033[1;34m'
+
+  javaVersion: 23
+  javaDistro: zulu
+  nodeVersion: 22
+
+jobs:
+  build:
+    name: Build
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: false
+    outputs:
+      tag-version: ${{ steps.get-version.outputs.TAG }}
+      now: ${{ steps.get-env.outputs.NOW }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 🧭 Get Environment
+        id: get-env
+        run: |
+          echo -e "${GREEN} ⚠️ Environment ${{ inputs.environment }}"
+          echo "NOW=$(date +'%Y-%m-%dT%H:%M:%S')" >> $GITHUB_OUTPUT
+
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          sparse-checkout: |
+            src
+            tests
+          sparse-checkout-cone-mode: false
+
+      - name: 🔍 Get-Version from csproj
+        id: get-version
+        shell: bash
+        run: |
+          csproj_path="${{ inputs.projectBaseDir }}/${{ inputs.mainProject }}/${{ inputs.mainProject }}.csproj"
+
+          # Extrair os valores
+          version=$(sed -n 's/.*<Version>\(.*\)<\/Version>.*/\1/p' "$csproj_path")
+          versionPrefix=$(sed -n 's/.*<VersionPrefix>\(.*\)<\/VersionPrefix>.*/\1/p' "$csproj_path")
+          versionSuffix=$(sed -n 's/.*<VersionSuffix>\(.*\)<\/VersionSuffix>.*/\1/p' "$csproj_path")
+
+          # Validar versão
+          if [[ -z "$version" ]]; then
+            echo -e "${RED}❌ Erro: A tag <Version> é obrigatória no arquivo .csproj"
+            exit 1
+          fi
+
+          # Montar TAG
+          tag="$version"
+          if [[ -n "$versionPrefix" ]]; then
+            tag="${versionPrefix}-${tag}"
+            ColorTagPrefix="${GREEN}"
+          else
+            ColorTagPrefix="${YELLOW}"
+          fi
+
+          if [[ -n "$versionSuffix" ]]; then
+            tag="${tag}-${versionSuffix}"
+            ColorTagSuffix="${GREEN}"
+          else
+            ColorTagSuffix="${YELLOW}"
+          fi
+
+          # echo "::group::🔍 Informações de versão extraídas"
+          echo -e "📦${GREEN} Version: $version"
+          echo -e "⬅️${ColorTagPrefix} Prefix: ${versionPrefix:-n/a}"
+          echo -e "➡️${ColorTagSuffix} Suffix: ${versionSuffix:-n/a}"
+          echo -e "🏷️${GREEN} TAG final: $tag"
+          # echo "::endgroup::"
+
+          echo "TAG=$tag" >> "$GITHUB_OUTPUT"
+          echo "VERSION=$version" >> "$GITHUB_OUTPUT"
+          echo "VERSION_PREFIX=$versionPrefix" >> "$GITHUB_OUTPUT"
+          echo "VERSION_SUFFIX=$versionSuffix" >> "$GITHUB_OUTPUT"
+      
+      - name: 🛠️ Setup .NET version ${{ inputs.dotnetVersion }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnetVersion }}
+
+      - name: ✅ Check .NET version in use
+        run: |
+          echo "DOTNET_ROOT: $DOTNET_ROOT"
+          $DOTNET_ROOT/dotnet --info
+
+      - name: 🔍 Verifica se existem projetos de teste
+        id: check-tests
+        shell: bash
+        run: |
+          if find . -type f \( -name '*Tests.csproj' -o -name '*Test.csproj' \) | grep -q .; then
+            echo "HAS_TESTS=true" >> "$GITHUB_OUTPUT"
+            echo -e "${GREEN}✅ Projetos de teste encontrados."
+          else
+            echo "HAS_TESTS=false" >> "$GITHUB_OUTPUT"
+            echo -e "${YELLOW}⚠️ Nenhum projeto de teste encontrado."
+          fi
+    
+      - name: 🛠️🧪 Install dotnet-reportgenerator-globaltool and dotnet-coverage
+        if: ${{ steps.check-tests.outputs.HAS_TESTS == 'true' }}
+        run: |
+          dotnet tool install --global dotnet-reportgenerator-globaltool
+          dotnet tool install --global dotnet-coverage
+
+      - name: Event name
+        run: |
+          echo "${{ github.event_name }}"
+
+      - name: 🧱📤 Git Leaks
+        if: github.event_name != 'pull_request_target' # || github.event.pull_request.head.repo.full_name == github.repository
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+          GITLEAKS_ENABLE_SUMMARY: true
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: true
+          GITLEAKS_NOTIFY_USER_LIST: '@felipementel'
+
+      - name: 🛠️ Set up JDK ${{ env.javaDistro }} ${{ env.javaVersion }}  to use with SonarCloud
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.javaVersion }}
+          distribution: ${{ env.javaDistro }}
+
+      - name: 🔐 SonarCloud packages cache
+        uses: actions/cache@v4
+        with:
+          path: ~/sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
+      - name: 🔐 SonarCloud scanner cache
+        id: cache-sonar-scanner
+        uses: actions/cache@v4
+        with:
+          path: ./.sonar/scanner
+          key: ${{ runner.os }}-sonar-scanner
+          restore-keys: ${{ runner.os }}-sonar-scanner
+
+      - name: 🔐 SonarCloud scanner installer
+        run: |
+          mkdir -p .sonar/scanner
+          dotnet tool install --global dotnet-sonarscanner 
+        #--tool-path .sonar/scanner
+
+      - name: 🐋 Set up Docker
+        if: ${{ steps.check-tests.outputs.HAS_TESTS == 'true' }}
+        run: |
+          sudo apt-get update
+          sudo curl -fsSL https://get.docker.com -o install-docker.sh
+          sudo sh install-docker.sh
+          sudo usermod -aG docker $(whoami)
+          docker --version
+
+      - name: 🧪 Run tests and generate coverage
+        if: ${{ steps.check-tests.outputs.HAS_TESTS == 'true' }}
+        run: |
+          for proj in $(find ./${{ inputs.testsFolder }}/ -name '*.csproj'); do
+            echo "➡️ Rodando testes com cobertura para: $proj"
+            dotnet test $proj \
+                --verbosity Minimal \
+                --configuration Debug \
+                --collect:"XPlat Code Coverage"
+            index=$((index+1))
+          done
+            
+          echo -e "${YELLOW}➡️ Gerando relatório HTML e Cobertura..."
+          reportgenerator \
+            -reports:"**/TestResults/**/coverage.cobertura.xml" \
+            -targetdir:"coveragereport" \
+            -reportTypes:"Cobertura;Html;MarkdownSummaryGithub;SonarQube" \
+            -title:${{ inputs.reportTitle }} \
+            -classfilters:"${{ inputs.sonarExclusions || ' '}}" \
+            -tag:'${{ github.run_number }}_${{ github.run_id }}'
+            
+      - name: 🧪📤 Upload coverage report artifact
+        if: ${{ steps.check-tests.outputs.HAS_TESTS == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Coverage-Report
+          path: coveragereport
+          
+      - name: 🔐 Build, analyze and use coverage (Test ✅, Sonar ✅)
+        if: ${{ steps.check-tests.outputs.HAS_TESTS == 'true' && inputs.tests && inputs.sonarQube }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          dotnet-sonarscanner begin \
+            /k:"${{ secrets.SONAR_PROJECT_KEY }}" \
+            /o:"${{ vars.SONAR_ORGANIZATION }}" \
+            /d:sonar.token="${{ secrets.SONAR_TOKEN }}" \
+            /d:sonar.host.url="https://sonarcloud.io" \
+            /d:sonar.language='cs' \
+            /d:sonar.scanner.scanAll=false \
+            /d:sonar.cs.vscoveragexml.reportsPaths=coverage*.xml \
+            /d:sonar.scanner.skipJreProvisioning=true \
+            /d:sonar.scanner.javaExePath=${JAVA_HOME}/bin/java \
+            /d:sonar.exclusions="${{ inputs.sonarExclusions || ' '}}"
+          dotnet restore ${{ inputs.projectBaseDir }}/${{ inputs.mainProject }}/${{ inputs.mainProject }}.csproj
+          dotnet build ${{ inputs.projectBaseDir }}/${{ inputs.mainProject }}/${{ inputs.mainProject }}.csproj \
+            --no-incremental \
+            --no-restore
+          echo -e "${GREEN}➡️ Rodando testes com cobertura para o SonarQube"
+          dotnet-coverage collect "dotnet test ${{ inputs.projectBaseDir }}/${{ inputs.solutionFileName }} \
+                                     --no-build \
+                                     --configuration Debug" \
+            --output-format xml \
+            --output "coverage.xml"
+          dotnet-sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
+
+      - name: 🔐 Build, analyze and use coverage (Test ⛔, Sonar ✅)
+        if: ${{ !env.HAS_TESTS }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          dotnet-sonarscanner begin \
+            /k:"${{ secrets.SONAR_PROJECT_KEY }}" \
+            /o:"${{ vars.SONAR_ORGANIZATION }}" \
+            /d:sonar.token="${{ secrets.SONAR_TOKEN }}" \
+            /d:sonar.host.url="https://sonarcloud.io" \
+            /d:sonar.language='cs' \
+            /d:sonar.scanner.scanAll=false \
+            /d:sonar.scanner.skipJreProvisioning=true \
+            /d:sonar.scanner.javaExePath=${JAVA_HOME}/bin/java \
+            /d:sonar.exclusions="${{ inputs.sonarExclusions || ' '}}"
+          dotnet restore ${{ inputs.projectBaseDir }}/${{ inputs.mainProject }}/${{ inputs.mainProject }}.csproj
+          dotnet build ${{ inputs.projectBaseDir }}/${{ inputs.mainProject }}/${{ inputs.mainProject }}.csproj \
+            --no-incremental \
+            --no-restore
+          dotnet-sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
+
+      - name: 🧪📤 Upload coverage report artifact
+        if: ${{ steps.check-tests.outputs.HAS_TESTS == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coveragereport
+          path: Coverage-Report
+
+      - name: 🍵 Restore dependencies
+        run: |
+          dotnet restore \
+            ${{ inputs.projectBaseDir }}/${{ inputs.mainProject }}/${{ inputs.mainProject }}.csproj
+          dotnet build \
+            ${{ inputs.projectBaseDir }}/${{ inputs.mainProject }}/${{ inputs.mainProject }}.csproj \
+            --no-restore \
+            --output ./output_build
+
+      - name: 🍵 Snyk Setup
+        uses: snyk/actions/setup@master
+
+      - name: 🍵 Build a Docker image
+        run: |
+          docker buildx build \
+            -t felipementel/${{ inputs.imageName }} \
+            -f ${{ inputs.projectBaseDir }}/${{ inputs.mainProject }}/Dockerfile \
+            ${{ inputs.projectBaseDir }}
+        
+      - name: 🍵 Snyk Container test
+        run: |
+          snyk container test felipementel/${{ inputs.imageName }} \
+            --exclude-base-image-vulns \
+            --json-file-output=vuln.json \
+            --file=${{ inputs.projectBaseDir }}/${{ inputs.mainProject }}/Dockerfile
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+      - name: 🍵 Run Snyk to check for vulnerabilities
+        uses: snyk/actions/dotnet@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --sarif-file-output=snykDotNet.sarif --file=${{ inputs.projectBaseDir }}/${{ inputs.solutionFileName }}
+
+      - name: 🍵📤 Upload result to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
+        with:
+          sarif_file: snykDotNet.sarif
+
+      - name: 🍵📤 Upload Snyk Container test
+        uses: actions/upload-artifact@v4
+        with:
+          name: Snyk-Container-Test
+          path: |
+            vuln.json
+
+      - name: 🎗️ Setup Node.js ${{ env.nodeVersion }}
+        if: ${{ inputs.openAPIFolder != '' }}
+        uses: actions/setup-node@v4        
+        with:
+          node-version: ${{ env.nodeVersion }}
+
+      - name: 🎗️ Install Spectral
+        if: ${{ inputs.openAPIFolder != '' }}
+        run: npm install -g @stoplight/spectral
+
+      - name: 🎗️ Run Spectral Lint with DevOps Linter ruleset
+        if: ${{ inputs.openAPIFolder != '' }}
+        run: |
+          spectral lint \
+            "output_build/${{ inputs.openAPIFolder }}/*.json" \
+            --format stylish \
+            --format html \
+            --output.html spectral-devops-linter.html \
+            --ruleset https://raw.githubusercontent.com/connectedcircuits/devops-api-linter/main/rules.yaml
+        continue-on-error: true
+
+      - name: 🎗️ Run Spectral Lint with OWASP ruleset
+        if: ${{ inputs.openAPIFolder != '' }}
+        run: |
+          spectral lint \
+            "output_build/${{ inputs.openAPIFolder }}/*.json" \
+            --format stylish \
+            --format html \
+            --output.html spectral-owasp.html \
+            --ruleset https://unpkg.com/@stoplight/spectral-owasp-ruleset
+        continue-on-error: true
+
+      - name: 🎗️📤 Upload Spectral Lint Results
+        if: ${{ always() && inputs.openAPIFolder != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Spectral-Results
+          path: spectral-*.html
+
+      - name: 🧾 Write to workflow job summary
+        run: |
+          SUMMARY=$GITHUB_STEP_SUMMARY$'
+          # Versão gerada\n
+          | versao | data | 
+          |--|--|
+          | ${{ steps.get-version.outputs.tag }} | ${{ steps.get-env.outputs.now }} | \n
+          Mensagem: ${{ inputs.msgCanalDeploy }}\n'
+          echo "$SUMMARY" >> $GITHUB_STEP_SUMMARY
+
+  check-image:
+    name: Check if image exists
+    runs-on: ubuntu-latest
+    outputs:
+      image-exists: ${{ steps.check-image-and-tag.outputs.IMAGE_EXISTS }}
+    needs: build
+    steps:
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if image with same tag exists
+        id: check-image-and-tag
+        run: |
+          IMAGE_TAG="ghcr.io/${{ github.actor }}/deploy.${{ inputs.imageName }}:${{ needs.build.outputs.tag-version }}"
+          echo "Checking existence of $IMAGE_TAG..."
+          if docker manifest inspect "$IMAGE_TAG" > /dev/null 2>&1; then
+            echo -e "✅ ${GREEN} Image exists in registry"
+            echo "IMAGE_EXISTS=true" >> "$GITHUB_OUTPUT"
+          else
+            echo -e "🔍 ${RED} Image does not exist in registry"
+            echo "IMAGE_EXISTS=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  notify-image-not-exists:
+    name: Notify when image not exists
+    needs: [build, check-image]
+    environment: ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    if: ${{ needs.check-image.outputs.image-exists == 'false' }}
+    steps:
+      - name: 🧾 Write to workflow job summary
+        run: |
+          echo "Image with tag ${{ needs.build.outputs.tag-version }} can be deployed. Push image to registry and publish on Azure Cloud." >> $GITHUB_STEP_SUMMARY
+          
+  notify-image-exists:
+    name: Notify when already image exists
+    needs: [build, check-image]
+    environment: ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    if: ${{ needs.check-image.outputs.image-exists == 'true' }}
+    steps:
+      - name: 🧾 Write to workflow job summary
+        run: |
+          echo "Image with tag ${{ needs.build.outputs.tag-version }} already exists. Skipping push image to registry and publish on Azure Cloud." >> $GITHUB_STEP_SUMMARY
