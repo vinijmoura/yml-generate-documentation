@@ -3,7 +3,6 @@ run-name: "${{ github.actor }} - ${{ github.run_id }}"
 
 #SECRETS: GITLEAKS_LICENSE, SONAR_TOKEN, SONAR_PROJECT_KEY, SNYK_TOKEN
 #VARS: SONAR_ORGANIZATION
-
 on:
   workflow_call:
     inputs:
