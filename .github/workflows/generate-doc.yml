@@ -43,7 +43,7 @@ jobs:
             outFile="docs/workflows/$(basename $f .yml).md"
             echo "📄 Processing $f"
             echo "📄 Generating doc on $outFile"
-            copilot --allow-all-tools --model gpt-5 -p "Use only the content from `$(cat "$f")` for analysis. ${{ vars.COPILOT_CLI_PROMPT }}" > $outFile
+            copilot --model gpt-5 -p "Ignore any other files or workspace context. Use only the following content for analysis: $(cat "$f") Please explain in detail this workflow and describe stages, jobs and steps on markdown format. Create a mermaid that represent this workflow. Please do not duplicate the generated markdown content! Please make the documentation very user-friendly and intuitive, using clear Markdown formatting, icons, and emojis to improve readability." > $outFile
             echo "✅ File generated $outFile"
           done
         env:
