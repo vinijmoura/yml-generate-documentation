@@ -1,93 +1,97 @@
-# Pull Request Check ⚡ — Workflow Documentation
+# Pull Request Check Workflow ⚡
 
-This reusable workflow validates .NET projects on PRs or reusable calls: builds the app, runs tests and code coverage, performs security/quality scans (Gitleaks, SonarCloud, Snyk), optionally lints OpenAPI specs with Spectral, and reports whether an image with the computed version tag already exists.
+A reusable GitHub Actions workflow designed to validate .NET projects, scan for secrets and vulnerabilities, analyze code quality with SonarCloud, lint OpenAPI specs, and manage Docker image existence notifications—optimized for pull request pipelines.
 
-## Trigger and Identity
-- Trigger: workflow_call (consumed by other workflows)
-- Name: Pull Request Check ⚡
-- Run name: "${{ github.actor }} - ${{ github.run_id }}"
+## Overview
+- Trigger: workflow_call (reusable workflow)
+- Environments: Java (Zulu 23), Node.js (v22), .NET (configurable via input)
+- Key Tools: Gitleaks, SonarCloud, Docker, Snyk, Spectral, ReportGenerator, dotnet-coverage
 
-## Inputs (selected)
-- environment (required, default: DEV): Target environment
-- testsFolder (default: tests): Root folder for test projects
-- dotnetVersion (required, default: 9.x)
-- projectBaseDir (required, default: ./src)
-- solutionFileName (required): Solution file, e.g., MyProject.slnx
-- mainProject (required): Main project folder name
-- reportTitle (required, default: Canal DEPLOY)
-- sonarExclusions (required, default: empty): Comma-separated exclusions
-- imageName (required): Image name
-- openAPIFolder (required): Folder under output_build/ that holds OpenAPI JSONs
+## Inputs
+- environment (string, required): Runtime environment (default: DEV)
+- testsFolder (string): Root tests dir (default: tests)
+- msgCanalDeploy (string): Summary message (default provided)
+- dotnetVersion (string, required): .NET SDK version (default: 9.x)
+- projectBaseDir (string, required): Path to src (default: ./src)
+- solutionFileName (string, required): Full .slnx file name
+- mainProject (string, required): Main project name (used for paths)
+- reportTitle (string, required): Test report display title (default: Canal DEPLOY)
+- sonarExclusions (string, required): Comma-separated path exclusions for Sonar
+- imageName (string, required): Image name for publishing
+- openAPIFolder (string, required): Subfolder under build output for OpenAPI JSON
 
-Secrets/vars used:
-- Secrets: GITLEAKS_LICENSE, SONAR_TOKEN, SONAR_PROJECT_KEY, SNYK_TOKEN, GITHUB_TOKEN
-- Vars: SONAR_ORGANIZATION
-
-Runtime env:
-- Java: zulu 23
-- Node: 22
+## Environment Variables
+ANSI color codes; javaVersion=23; javaDistro=zulu; nodeVersion=22.
 
 ---
 
-## Jobs Overview
+## Jobs and Steps
 
-### 1) build (ubuntu-latest)
-Outputs:
-- tag-version: Computed from csproj Version/(Prefix)/(Suffix)
-- now: Current timestamp
+### 1) Build
+- Purpose: Build .NET, run tests and coverage, security scans, SonarCloud analysis, OpenAPI linting, and publish artifacts.
+- Runs-on: ubuntu-latest
+- Outputs:
+  - tag-version: from csproj extracted tag
+  - now: timestamp
+- Steps:
+  - 🧭 Get Environment: Logs environment; sets NOW output.
+  - 📥 Checkout: Sparse checkout src and tests.
+  - 🔍 Get-Version from csproj: Reads Version/Prefix/Suffix from csproj to build a TAG; exports TAG and components.
+  - 🛠️ Setup .NET: Install specified SDK.
+  - ✅ Check .NET version: Print runtime info.
+  - 🔍 Check tests: Detects presence of *Tests.csproj or *Test.csproj; sets HAS_TESTS output.
+  - 🛠️🧪 Install reporting tools: dotnet-reportgenerator-globaltool & dotnet-coverage (if tests exist).
+  - Event name: Echo event type.
+  - 🧱📤 Gitleaks: Secret scanning with summary and artifact upload.
+  - 🛠️ Setup JDK: Java for SonarCloud scanner.
+  - 🔐 Sonar caches: Cache packages and scanner.
+  - 🔐 Sonar scanner install: Install dotnet-sonarscanner globally.
+  - 🐋 Setup Docker: Install Docker and check version (if tests exist).
+  - 🧪 Run tests + coverage: dotnet test across testsFolder; generate HTML, Cobertura, MarkdownSummaryGithub, SonarQube reports; apply sonarExclusions; tag with run ids.
+  - 🧪📤 Upload coverage report: Upload coveragereport directory.
+  - 🔐 Build + Sonar (Test ✅, Sonar ✅): Full Sonar scan with coverage via dotnet-coverage (when both tests and sonar inputs flags are set).
+  - 🔐 Build + Sonar (Test ⛔, Sonar ✅): Sonar scan without tests if no HAS_TESTS.
+  - 🧪📤 Upload coverage report artifact (second upload): Upload Coverage-Report directory (note: name/path swap vs previous).
+  - 🍵 Restore + Build: Restore and build main project to output_build.
+  - 🍵 Snyk Setup: Install Snyk.
+  - 🍵 Docker build: Build image with tag felipementel/<imageName> using project Dockerfile.
+  - 🍵 Snyk Container test: Scan built image; export JSON results; requires SNYK_TOKEN.
+  - 🍵 Snyk .NET scan: Scan solution; upload SARIF.
+  - 🍵📤 Upload Snyk SARIF: Publish to GitHub Code Scanning.
+  - 🍵📤 Upload Snyk Container artifact: Upload vuln.json.
+  - 🎗️ Setup Node.js: Install Node v22 (if openAPIFolder provided).
+  - 🎗️ Install Spectral: Global install.
+  - 🎗️ Spectral Lint (DevOps rules): Lint OpenAPI JSON in output_build/<openAPIFolder>; stylish + HTML output; continue-on-error.
+  - 🎗️ Spectral Lint (OWASP rules): Same inputs with OWASP ruleset; stylish + HTML; continue-on-error.
+  - 🎗️📤 Upload Spectral results: Upload spectral-*.html artifacts.
+  - 🧾 Job summary: Writes version and message to workflow summary.
 
-Key steps:
-- Environment and checkout
-  - Get Environment: logs environment and sets NOW
-  - Checkout (sparse): src and tests
-- Versioning
-  - Get-Version from csproj: reads <Version>, <VersionPrefix>, <VersionSuffix> from ${{ inputs.projectBaseDir }}/${{ inputs.mainProject }}/${{ inputs.mainProject }}.csproj and composes TAG
-- .NET setup
-  - setup-dotnet with inputs.dotnetVersion
-  - dotnet --info
-- Test detection and tools
-  - Find *Tests.csproj or *Test.csproj under testsFolder
-  - If tests exist: install dotnet-reportgenerator-globaltool and dotnet-coverage; also set up Docker (get.docker.com)
-- Security and quality
-  - Gitleaks (skips on pull_request_target)
-  - Setup Java, cache Sonar, install dotnet-sonarscanner
-- Testing and coverage (when tests exist)
-  - dotnet test for each test project (XPlat coverage)
-  - reportgenerator → Cobertura, HTML, Markdown, SonarQube reports
-  - Upload Coverage-Report artifact (coveragereport directory)
-- SonarCloud analysis
-  - With tests and coverage: dotnet-sonarscanner begin → restore/build → dotnet-coverage collect → end
-  - Without tests: dotnet-sonarscanner begin → restore/build → end
-- Build + Security scanning
-  - dotnet restore/build to ./output_build
-  - Snyk setup
-  - Docker buildx build image (tag: felipementel/${{ inputs.imageName }})
-  - Snyk container test (writes vuln.json)
-  - Snyk .NET scan → SARIF upload to GitHub code scanning
-  - Upload Snyk Container test artifact (vuln.json)
-- OpenAPI linting (when openAPIFolder provided)
-  - Setup Node 22, install Spectral
-  - Run DevOps Linter ruleset → spectral-devops-linter.html
-  - Run OWASP ruleset → spectral-owasp.html
-  - Upload Spectral-Results artifacts
-- Summary
-  - Writes version and timestamp plus a custom message to the job summary
+### 2) Check Image
+- Purpose: Determine if an image with generated tag exists in GHCR.
+- Needs: build
+- Outputs:
+  - image-exists: true/false
+- Steps:
+  - 🔑 Login to GHCR with GITHUB_TOKEN
+  - 🔎 Manifest inspect: Check ghcr.io/<actor>/deploy.<imageName>:<tag-version>; set IMAGE_EXISTS accordingly.
 
-### 2) check-image (ubuntu-latest)
-- Logs in to GHCR with GITHUB_TOKEN
-- Checks if image tag exists:
-  - ghcr.io/${{ github.actor }}/deploy.${{ inputs.imageName }}:${{ needs.build.outputs.tag-version }}
-- Output: image-exists = true/false
+### 3) Notify Image Not Exists
+- Purpose: Guide next steps when image is missing.
+- Needs: [build, check-image], condition: image-exists == 'false'
+- Steps:
+  - 🧾 Summary: Note that image can be deployed; push to registry and publish on Azure Cloud.
 
-### 3) notify-image-not-exists (ubuntu-latest)
-- Needs: [build, check-image]
-- Runs if image-exists == 'false'
-- Writes a summary telling the image can be deployed and should be pushed
+### 4) Notify Image Exists
+- Purpose: Avoid duplicate publishing.
+- Needs: [build, check-image], condition: image-exists == 'true'
+- Steps:
+  - 🧾 Summary: Note that image with tag already exists; skip push and Azure publish.
 
-### 4) notify-image-exists (ubuntu-latest)
-- Needs: [build, check-image]
-- Runs if image-exists == 'true'
-- Writes a summary telling the image already exists and push/publish is skipped
+---
+
+## Secrets and Vars
+- Secrets: GITLEAKS_LICENSE, SONAR_TOKEN, SONAR_PROJECT_KEY, SNYK_TOKEN, GITHUB_TOKEN (built-in)
+- Vars: SONAR_ORGANIZATION
 
 ---
 
@@ -95,38 +99,45 @@ Key steps:
 
 ```mermaid
 flowchart TD
-  A[Workflow Call 🔁] --> B[build 🧱]
-  subgraph Build Job
-    B1[Get env + checkout] --> B2[Read csproj version → TAG]
-    B2 --> B3[Setup .NET] --> B4[Check tests]
-    B4 -- HAS_TESTS=true --> B5[Install test tools + Docker]
-    B4 -- HAS_TESTS=false --> B6[Skip test tooling]
-    B5 --> B7[dotnet test + coverage + reportgenerator + upload artifact]
-    B6 --> B8[Sonar (no tests)]
-    B7 --> B9[Sonar (with tests + coverage)]
-    B8 --> B10[Build to output_build]
-    B9 --> B10[Build to output_build]
-    B10 --> B11[Docker build]
-    B11 --> B12[Snyk container test + upload]
-    B10 --> B13[Snyk .NET → SARIF → upload]
-    B10 --> B14{openAPIFolder set?}
-    B14 -- yes --> B15[Node + Spectral DevOps+OWASP + upload]
-    B14 -- no --> B16[Skip Spectral]
-    B12 --> B17[Job summary]
-    B13 --> B17
-    B15 --> B17
-    B16 --> B17
+  A[workflow_call trigger] --> B(Build Job)
+  B -->|outputs: tag-version, now| C(Check Image)
+  C -->|IMAGE_EXISTS == false| D(Notify Image Not Exists)
+  C -->|IMAGE_EXISTS == true| E(Notify Image Exists)
+
+  subgraph Build
+    B1[🧭 Get Environment (NOW)]
+    B2[📥 Checkout (src, tests)]
+    B3[🔍 Get-Version from csproj (TAG)]
+    B4[🛠️ Setup .NET & ✅ dotnet --info]
+    B5[🔍 Check tests (HAS_TESTS)]
+    B6[🧱📤 Gitleaks]
+    B7[🛠️ Setup JDK + 🔐 Sonar caches + install scanner]
+    B8[🐋 Setup Docker (if tests)]
+    B9[🧪 Test + Coverage + Report (if tests)]
+    B10[🧪📤 Upload Coverage Report]
+    B11[🔐 Sonar Scan w/ Coverage (if tests & sonar flags)]
+    B12[🔐 Sonar Scan no tests (if no tests)]
+    B13[🧪📤 Upload Coverage Report (alt path)]
+    B14[🍵 Restore + Build → output_build]
+    B15[🍵 Snyk setup + Container build]
+    B16[🍵 Snyk Container test → vuln.json]
+    B17[🍵 Snyk .NET scan → SARIF]
+    B18[🍵📤 Upload SARIF]
+    B19[🍵📤 Upload vuln.json]
+    B20[🎗️ Node setup + Spectral install (if openAPIFolder)]
+    B21[🎗️ Spectral DevOps lint → HTML]
+    B22[🎗️ Spectral OWASP lint → HTML]
+    B23[🎗️📤 Upload Spectral HTMLs]
+    B24[🧾 Job Summary]
   end
-  B --> C[check-image 🔎]
-  C -->|IMAGE_EXISTS=false| D[notify-image-not-exists 🔔]
-  C -->|IMAGE_EXISTS=true| E[notify-image-exists 🔕]
+
+  B --> B1 --> B2 --> B3 --> B4 --> B5 --> B6 --> B7 --> B8 --> B9 --> B10 --> B11 --> B12 --> B13 --> B14 --> B15 --> B16 --> B17 --> B18 --> B19 --> B20 --> B21 --> B22 --> B23 --> B24
 ```
 
 ---
 
-## Notes and Gotchas
-- Sonar step with tests is gated by inputs.tests and inputs.sonarQube, which are not defined; that step will never run unless those inputs are added.  
-- Coverage artifact upload appears twice with swapped name/path (Coverage-Report vs coveragereport); verify the intended artifact name and directory.  
-- The built image tag (felipementel/${{ inputs.imageName }}) differs from the registry/name checked later (ghcr.io/${{ github.actor }}/deploy.${{ inputs.imageName }}:TAG); align registry/namespace/name if you expect the image to be found.  
-- The “Sonar (no tests)” condition uses env.HAS_TESTS; since HAS_TESTS is a step output, prefer steps.check-tests.outputs.HAS_TESTS != 'true' to avoid unintended always-on execution.
+## Notes and Tips
+- Ensure solutionFileName, mainProject, and imageName are correctly provided; the workflow relies on strict path conventions.
+- Sonar conditional step requires both tests to exist and flags inputs.tests and inputs.sonarQube to be set; otherwise, it runs a build-only analysis.
+- OpenAPI linting targets JSON files inside output_build/<openAPIFolder>; confirm your build emits API specs there.
 
